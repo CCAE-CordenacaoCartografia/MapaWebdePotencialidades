@@ -1,5 +1,6 @@
 
 
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -4519,7 +4520,8 @@ map.createPane('pane-mask');           map.getPane('pane-mask').style.zIndex = 2
     ensurePane('pane-uc-estadual', 590);
     ensurePane('pane-ferrovias', 650, 'auto');
     ensurePane('pane-rodo-fed', 660);
-    ensurePane('pane-rodo-est', 660);
+    ensurePane('pane-rodo-est-halo', 658, 'none');
+    ensurePane('pane-rodo-est', 662);
     ensurePane('pane-rodo-mix', 660);
     ensurePane('pane-portos', 680, 'auto');
     ensurePane('pane-aerodromos', 700, 'auto');
@@ -6368,7 +6370,7 @@ function desenharQuadroResumoPdf(doc, x, y, w, titulo, items = []) {
       pushLayer("Massas d'água", (typeof massasAguaLayer !== 'undefined' ? massasAguaLayer : null), '#0284c7');
       pushLayer('Ferrovias', (typeof ferroviasLayer !== 'undefined' ? ferroviasLayer : null), '#3b2f2a');
       pushLayer('Rodovias Federais', (typeof rodoviasFederaisLayer !== 'undefined' ? rodoviasFederaisLayer : null), '#f97316');
-      pushLayer('Rodovias Estaduais', (typeof rodoviasEstaduaisLayer !== 'undefined' ? rodoviasEstaduaisLayer : null), '#f59e0b');
+      pushLayer('Rodovias Estaduais', (typeof rodoviasEstaduaisLayer !== 'undefined' ? rodoviasEstaduaisLayer : null), '#d97706');
       pushLayer('Rodovias Federais ou Estaduais', (typeof rodoviasMixLayer !== 'undefined' ? rodoviasMixLayer : null), '#7c3aed');
       pushLayer('UCs Federais', (typeof ucFederalLayer !== 'undefined' ? ucFederalLayer : null), '#16a34a');
       pushLayer('UCs Estaduais', (typeof ucEstadualLayer !== 'undefined' ? ucEstadualLayer : null), '#22c55e');
@@ -12667,7 +12669,8 @@ function wireLegendEvents(container){
 
 
 ensurePane('pane-rodo-fed', 660);
-ensurePane('pane-rodo-est', 660);
+ensurePane('pane-rodo-est-halo', 658, 'none');
+ensurePane('pane-rodo-est', 662);
 ensurePane('pane-rodo-mix', 660);
 
 /* Extrai sigla */
@@ -12680,13 +12683,55 @@ function getRodoviaSigla(props = {}) {
 
 /* Estilo */
 function styleRodoFed() { return { pane:'pane-rodo-fed', color:'#d9482e', weight:2.15, opacity:.78, lineCap:'round', lineJoin:'round' }; }   // vermelho suave
-function styleRodoEst() { return { pane:'pane-rodo-est', color:'#f59e0b', weight:2.05, opacity:.74, lineCap:'round', lineJoin:'round' }; } // laranja/dourado: evita confundir com rios
+
+// Rodovias Estaduais: buffer branco suave + linha principal laranja menos saturada.
+function styleRodoEstHalo() {
+  return {
+    pane:'pane-rodo-est-halo',
+    color:'#ffffff',
+    weight:4.6,
+    opacity:.78,
+    lineCap:'round',
+    lineJoin:'round'
+  };
+}
+
+function styleRodoEst() {
+  return {
+    pane:'pane-rodo-est',
+    color:'#d97706',
+    weight:2.25,
+    opacity:.84,
+    lineCap:'round',
+    lineJoin:'round'
+  };
+}
+
 function styleRodoMixHalo() { return { pane:'pane-rodo-mix', color:'#f8fafc', weight:4.9, opacity:.92, lineCap:'round', lineJoin:'round' }; } // halo claro para aumentar a nitidez
 function styleRodoMix() { return { pane:'pane-rodo-mix', color:'#6b21d9', weight:2.45, opacity:.97, lineCap:'round', lineJoin:'round' }; }   // rodovias federais/estaduais nítidas com traço principal
 
 /* Hover */
 function hoverRodoEnter(e){
-  aplicarHoverLinhaAtlas(e, { color: '#ff7a00', weight: 6.2 });
+  const l = e && e.target ? e.target : e;
+  if (!l || !l.setStyle) return;
+  const base = (l.options && l.options._baseStyle) || {};
+  l.setStyle({
+    color: '#e08a00',
+    weight: Math.max((base.weight || 2.2) + 0.8, 3.0),
+    opacity: .92,
+    lineCap: 'round',
+    lineJoin: 'round'
+  });
+  try { l.bringToFront(); } catch(_) {}
+  try {
+    const el = l.getElement && l.getElement();
+    if (el) {
+      el.classList.add('linha-atlas-hover');
+      el.style.filter = 'drop-shadow(0 0 2px #ffffff) drop-shadow(0 0 4px rgba(217,119,6,.45))';
+      el.style.cursor = 'pointer';
+    }
+  } catch(_) {}
+  try { if (l.openTooltip) l.openTooltip(); } catch(_) {}
 }
 function hoverRodoLeave(e){
   resetHoverLinhaAtlas(e);
@@ -12714,7 +12759,7 @@ function bindRodoPopup(feature, layer, titulo){
     btn.addEventListener('click', ()=>{
       const nomeArq = (sigla||titulo).replace(/[^\w\s-]/g,'').replace(/\s+/g,'_');
       let kml = tokml({ type:'FeatureCollection', features:[feature] });
-      const corKml = titulo.includes('Estadual') ? 'ff0b9ef5' : (titulo.includes('Federal ou Estadual') ? 'ffd9216b' : 'ff2e48d9');
+      const corKml = titulo.includes('Estadual') ? 'ff0677d9' : (titulo.includes('Federal ou Estadual') ? 'ffd9216b' : 'ff2e48d9');
       const estiloKML = `
         <Style id="rodoStyle">
           <LineStyle><color>${corKml}</color><width>3</width></LineStyle>
@@ -12745,7 +12790,15 @@ try {
 
 /* ======= RODOVIAS ESTADUAIS ======= */
 try {
-  var rodoviasEstaduaisLayer = new L.GeoJSON.AJAX('rodoviasestaduais.geojson', {
+  // Buffer branco separado: aumenta a leitura sobre satélite/relevo sem pesar a cor.
+  var rodoviasEstaduaisHaloLayer = new L.GeoJSON.AJAX('rodoviasestaduais.geojson', {
+    pane:'pane-rodo-est-halo',
+    interactive:false,
+    style:(f)=> styleRodoEstHalo(f)
+  });
+
+  // Linha principal laranja, mais visível e menos exagerada.
+  var rodoviasEstaduaisMainLayer = new L.GeoJSON.AJAX('rodoviasestaduais.geojson', {
     pane:'pane-rodo-est',
     style:(f)=>{ const st=styleRodoEst(f); return st; },
     onEachFeature:(feature, layer)=>{
@@ -12754,6 +12807,9 @@ try {
       layer.on({mouseover:hoverRodoEnter, mouseout:hoverRodoLeave});
     }
   });
+
+  // Mantém uma única opção no controle de camadas.
+  var rodoviasEstaduaisLayer = L.layerGroup([rodoviasEstaduaisHaloLayer, rodoviasEstaduaisMainLayer]);
   layersControl.addOverlay(rodoviasEstaduaisLayer, "Rodovias Estaduais");
 } catch(e) { console.warn("rodoviasestaduais.geojson não encontrado"); }
 
@@ -14528,7 +14584,7 @@ function hoverMinerLeave(e) {
       if (n.includes('massa')) return '#38bdf8';
       if (n.includes('ferrovia')) return '#111827';
       if (n.includes('rodovia') && n.includes('estadual') && n.includes('federal')) return '#7c3aed';
-      if (n.includes('rodovia') && n.includes('estadual')) return '#f59e0b';
+      if (n.includes('rodovia') && n.includes('estadual')) return '#d97706';
       if (n.includes('rodovia')) return '#f97316';
       if (n.includes('uc')) return '#16a34a';
       if (n.includes('aerodromo')) return '#7c3aed';
@@ -14662,7 +14718,7 @@ function hoverMinerLeave(e) {
       if (n.includes('massa')) return { color: '#0284c7', weight: 1.6, opacity: .9, fillColor: '#38bdf8', fillOpacity: .35 };
       if (n.includes('ferrovia')) return { color: '#1f1714', weight: 2.9, opacity: .98, dashArray: '5,3' };
       if (n.includes('rodovia') && n.includes('estadual') && n.includes('federal')) return { color: '#6b21d9', weight: 1.2, opacity: .82, lineCap: 'round', lineJoin: 'round' };
-      if (n.includes('rodovia') && n.includes('estadual')) return { color: '#f59e0b', weight: 1.15, opacity: .82, lineCap: 'round', lineJoin: 'round' };
+      if (n.includes('rodovia') && n.includes('estadual')) return { color: '#d97706', weight: 1.15, opacity: .80, lineCap: 'round', lineJoin: 'round' };
       if (n.includes('rodovia')) return { color: '#d9482e', weight: 1.1, opacity: .78, lineCap: 'round', lineJoin: 'round' };
       if (n.includes('imperial')) return { color: '#2563eb', weight: 2.5, opacity: .95, dashArray: '5,5' };
       if (n.includes('litigio')) return { color: '#dc2626', weight: 2.6, opacity: 1, fillColor: '#dc2626', fillOpacity: .20 };
@@ -14847,7 +14903,7 @@ function hoverMinerLeave(e) {
       if (n.includes('massa')) return { stroke: '#0284c7', fill: 'rgba(56,189,248,0.30)', lineWidth: 1.5, dash: [] };
       if (n.includes('rio')) return { stroke: '#0ea5e9', fill: null, lineWidth: 1.9, dash: [] };
       if (n.includes('rodovia') && n.includes('estadual') && n.includes('federal')) return { stroke: '#6b21d9', fill: null, lineWidth: 0.95, dash: [] };
-      if (n.includes('rodovia') && n.includes('estadual')) return { stroke: '#f59e0b', fill: null, lineWidth: 0.9, dash: [] };
+      if (n.includes('rodovia') && n.includes('estadual')) return { stroke: '#d97706', fill: null, lineWidth: 0.9, dash: [] };
       if (n.includes('rodovia')) return { stroke: '#d9482e', fill: null, lineWidth: 0.85, dash: [] };
       if (n.includes('ferrovia')) return { stroke: '#2b211d', fill: null, lineWidth: 1.45, dash: [3, 3] };
       if (n.includes('imperial')) return { stroke: '#2563eb', fill: null, lineWidth: 1.8, dash: [5, 5] };
